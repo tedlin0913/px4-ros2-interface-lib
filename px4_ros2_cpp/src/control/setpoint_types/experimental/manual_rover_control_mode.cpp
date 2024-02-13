@@ -28,8 +28,7 @@ void ManualRoverControlModeType::update(float speed, float yaw_rate)
   setpoint.speed = speed;
   setpoint.yaw_rate = yaw_rate;
   setpoint.closed_loop_speed_control = false; // false for now, we can do closed loop control with wheel odom
-  setpoint.closed_loop_yaw_rate_control = false; // same case here
-
+  setpoint.closed_loop_yaw_rate_control = true; // same case here
 
   _differential_drive_setpoint_pub->publish(setpoint);
 }
