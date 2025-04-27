@@ -12,37 +12,37 @@
 
 namespace px4_ros2
 {
-/** \ingroup odometry
- *  @{
- */
-
-/**
- * @brief Provides access to the vehicle's global position estimate
- */
-class OdometryGlobalPosition : public Subscription<px4_msgs::msg::VehicleGlobalPosition>
-{
-public:
-  explicit OdometryGlobalPosition(Context & context);
+  /** \ingroup odometry
+   *  @{
+   */
 
   /**
-   * Check if the last vehicle's global position is valid.
+   * @brief Provides access to the vehicle's global position estimate
    */
-  bool positionValid() const
+  class OdometryGlobalPosition : public Subscription<px4_msgs::msg::VehicleGlobalPosition>
   {
-    return lastValid() && last().lat_lon_valid && last().alt_valid;
-  }
+  public:
+    explicit OdometryGlobalPosition(Context &context);
 
-  /**
-   * @brief Get the vehicle's global position.
-   *
-   * @returns a vector of (latitude [°], longitude [°], altitude [m AMSL])
-   */
-  Eigen::Vector3d position() const
-  {
-    const px4_msgs::msg::VehicleGlobalPosition & pos = last();
-    return {pos.lat, pos.lon, pos.alt};
-  }
-};
+    /**
+     * Check if the last vehicle's global position is valid.
+     */
+    bool positionValid() const
+    {
+      return lastValid();
+    }
 
-/** @}*/
+    /**
+     * @brief Get the vehicle's global position.
+     *
+     * @returns a vector of (latitude [°], longitude [°], altitude [m AMSL])
+     */
+    Eigen::Vector3d position() const
+    {
+      const px4_msgs::msg::VehicleGlobalPosition &pos = last();
+      return {pos.lat, pos.lon, pos.alt};
+    }
+  };
+
+  /** @}*/
 } /* namespace px4_ros2 */
