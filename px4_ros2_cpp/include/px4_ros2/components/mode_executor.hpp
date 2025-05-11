@@ -92,13 +92,13 @@ namespace px4_ros2
      */
     void scheduleMode(ModeBase::ModeID mode_id, const CompletedCallback &on_completed);
 
-    void takeoff(const CompletedCallback &on_completed, float altitude = NAN, float heading = NAN);
-    void land(const CompletedCallback &on_completed);
-    void rtl(const CompletedCallback &on_completed);
+    virtual void takeoff(const CompletedCallback &on_completed, float altitude = NAN, float heading = NAN);
+    virtual void land(const CompletedCallback &on_completed);
+    virtual void rtl(const CompletedCallback &on_completed);
 
-    void arm(const CompletedCallback &on_completed);
-    void waitReadyToArm(const CompletedCallback &on_completed);
-    void waitUntilDisarmed(const CompletedCallback &on_completed);
+    virtual void arm(const CompletedCallback &on_completed);
+    virtual void waitReadyToArm(const CompletedCallback &on_completed);
+    virtual void waitUntilDisarmed(const CompletedCallback &on_completed);
 
     bool isInCharge() const { return _is_in_charge; }
 
@@ -186,9 +186,9 @@ namespace px4_ros2
     rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr _vehicle_status_sub;
     rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr _vehicle_command_pub;
 
-    rclcpp::CallbackGroup::SharedPtr _ack_callback_group;
-    rclcpp::Subscription<px4_msgs::msg::VehicleCommandAck>::SharedPtr
-        _vehicle_command_ack_sub;
+    // rclcpp::CallbackGroup::SharedPtr _ack_callback_group;
+    // rclcpp::Subscription<px4_msgs::msg::VehicleCommandAck>::SharedPtr
+    //     _vehicle_command_ack_sub;
 
     ScheduledMode _current_scheduled_mode;
     WaitForVehicleStatusCondition _current_wait_vehicle_status;

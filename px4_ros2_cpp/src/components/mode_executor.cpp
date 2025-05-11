@@ -40,17 +40,17 @@ namespace px4_ros2
         topic_namespace_prefix + "fmu/in/vehicle_command_mode_executor" + px4_ros2::getMessageNameVersion<px4_msgs::msg::VehicleCommand>(),
         1);
 
-    _ack_callback_group =
-        node.create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-    rclcpp::SubscriptionOptions opts;
-    opts.callback_group = _ack_callback_group;
+    // _ack_callback_group =
+    //     node.create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    // rclcpp::SubscriptionOptions opts;
+    // opts.callback_group = _ack_callback_group;
 
-    _vehicle_command_ack_sub =
-        _node.create_subscription<px4_msgs::msg::VehicleCommandAck>(
-            _topic_namespace_prefix + "fmu/out/vehicle_command_ack" + px4_ros2::getMessageNameVersion<px4_msgs::msg::VehicleCommandAck>(),
-            rclcpp::QoS(1).best_effort(),
-            [](px4_msgs::msg::VehicleCommandAck::UniquePtr) {},
-            opts);
+    // _vehicle_command_ack_sub =
+    //     _node.create_subscription<px4_msgs::msg::VehicleCommandAck>(
+    //         _topic_namespace_prefix + "fmu/out/vehicle_command_ack" + px4_ros2::getMessageNameVersion<px4_msgs::msg::VehicleCommandAck>(),
+    //         rclcpp::QoS(1).best_effort(),
+    //         [](px4_msgs::msg::VehicleCommandAck::UniquePtr) {},
+    //         opts);
   }
 
   bool ModeExecutorBase::doRegister()
@@ -144,13 +144,17 @@ namespace px4_ros2
     // ROS Jazzy would throw an exception 'subscription already associated with a wait set'
     // (We could also use exchange_in_use_by_wait_set_state(), but that might cause an
     // inconsistent state)
-    // const auto vehicle_command_ack_sub = _node.create_subscription<px4_msgs::msg::VehicleCommandAck>(
-    //     _topic_namespace_prefix + "fmu/out/vehicle_command_ack" + px4_ros2::getMessageNameVersion<px4_msgs::msg::VehicleCommandAck>(), rclcpp::QoS(1).best_effort(),
-    //     [](px4_msgs::msg::VehicleCommandAck::UniquePtr msg) {});
+    const auto vehicle_command_ack_sub = _node.create_subscription<px4_msgs::msg::VehicleCommandAck>(
+        _topic_namespace_prefix + "fmu/out/vehicle_command_ack" +
+            px4_ros2::getMessageNameVersion<px4_msgs::msg::VehicleCommandAck>(),
+        rclcpp::QoS(
+            1)
+            .best_effort(),
+        [](px4_msgs::msg::VehicleCommandAck::UniquePtr msg) {});
 
     // Wait until we have a publisher
     auto start_time = std::chrono::steady_clock::now();
-    while (_vehicle_command_ack_sub->get_publisher_count() == 0)
+    while (vehicle_command_ack_sub->get_publisher_count() == 0)
     {
       const auto timeout = 3000ms;
       const auto now = std::chrono::steady_clock::now();
@@ -162,151 +166,70 @@ namespace px4_ros2
     }
 
     rclcpp::WaitSet wait_set;
-    wait_set.add_subscription(_vehicle_command_ack_sub);
+    wait_set.add_subscription(vehicle_command_ack_sub);
 
     bool got_reply = false;
 
-    for (int attempt = 0; attempt < 5 && !got_reply; ++attempt)
+    for (int i = 0; i < 3 && !got_reply; ++i)
     {
       _vehicle_command_pub->publish(cmd);
-
-      auto start = std::chrono::steady_clock::now();
-      const auto timeout = 500ms;
-
+      start_time = std::chrono::steady_clock::now();
+      const auto timeout = 300ms;
       while (!got_reply)
       {
         auto now = std::chrono::steady_clock::now();
-        auto elapsed = now - start;
 
-        // If we’ve already timed out, break out.
-        if (elapsed >= timeout)
+        if (now >= start_time + timeout)
         {
           break;
         }
 
-        // Compute remaining time
-        auto remaining = timeout - elapsed;
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count();
+        auto wait_ret = wait_set.wait(timeout - (now - start_time));
 
-        // Log it
-        RCLCPP_DEBUG(
-            _node.get_logger(),
-            "Waiting for ACK, remaining = %lld ms", static_cast<long long>(ms));
-
-        auto ret = wait_set.wait(remaining);
-        if (ret.kind() != rclcpp::WaitResultKind::Ready)
+        if (wait_ret.kind() == rclcpp::WaitResultKind::Ready)
         {
-          RCLCPP_DEBUG(_node.get_logger(), "ACK wait timeout");
-          continue;
-        }
+          px4_msgs::msg::VehicleCommandAck ack;
+          rclcpp::MessageInfo info;
 
-        px4_msgs::msg::VehicleCommandAck ack;
-        rclcpp::MessageInfo info;
-        if (_vehicle_command_ack_sub->take(ack, info) && ack.command == cmd.command && ack.target_component == cmd.source_component)
-        {
-          if (ack.result ==
-              px4_msgs::msg::VehicleCommandAck::VEHICLE_CMD_RESULT_ACCEPTED)
+          if (vehicle_command_ack_sub->take(ack, info))
           {
-            result = Result::Success;
+            if (ack.command == cmd.command && ack.target_component == cmd.source_component)
+            {
+              if (ack.result ==
+                  px4_msgs::msg::VehicleCommandAck::VEHICLE_CMD_RESULT_ACCEPTED)
+              {
+                result = Result::Success;
+              }
+
+              got_reply = true;
+            }
           }
           else
           {
-            RCLCPP_WARN(_node.get_logger(), "Command NACK: %u", ack.result);
+            RCLCPP_DEBUG(
+                _node.get_logger(),
+                "No VehicleCommandAck message received");
           }
-          got_reply = true;
+        }
+        else
+        {
+          RCLCPP_DEBUG(_node.get_logger(), "timeout");
         }
       }
     }
 
-    wait_set.remove_subscription(_vehicle_command_ack_sub);
+    wait_set.remove_subscription(vehicle_command_ack_sub);
 
     if (!got_reply)
     {
+      // We don't expect to run into an ack timeout
       result = Result::Timeout;
       RCLCPP_WARN(
-          _node.get_logger(),
-          "Cmd %i: timeout, no ack received", cmd.command);
+          _node.get_logger(), "Cmd %i: timeout, no ack received",
+          cmd.command);
     }
 
     return result;
-    // rclcpp::WaitSet wait_set;
-    // wait_set.add_subscription(vehicle_command_ack_sub);
-
-    // bool got_reply = false;
-
-    // for (int i = 0; i < 5 && !got_reply; ++i)
-    // {
-    //   _vehicle_command_pub->publish(cmd);
-    //   start_time = std::chrono::steady_clock::now();
-    //   const auto timeout = 500ms;
-    //   while (!got_reply)
-    //   {
-    //     auto now = std::chrono::steady_clock::now();
-
-    //     if (now >= start_time + timeout)
-    //     {
-    //       break;
-    //     }
-
-    //     auto wait_ret = wait_set.wait(timeout - (now - start_time));
-
-    //     if (wait_ret.kind() == rclcpp::WaitResultKind::Ready)
-    //     {
-    //       px4_msgs::msg::VehicleCommandAck ack;
-    //       rclcpp::MessageInfo info;
-
-    //       if (vehicle_command_ack_sub->take(ack, info))
-    //       {
-    //         if (ack.command == cmd.command && ack.target_component == cmd.source_component)
-    //         {
-    //           if (ack.result ==
-    //               px4_msgs::msg::VehicleCommandAck::VEHICLE_CMD_RESULT_ACCEPTED)
-    //           {
-    //             result = Result::Success;
-    //           }
-    //           else
-    //           {
-    //             RCLCPP_WARN(
-    //                 _node.get_logger(),
-    //                 "GET ANOTHER RESULT??");
-    //             if (ack.result ==
-    //                 px4_msgs::msg::VehicleCommandAck::VEHICLE_CMD_RESULT_FAILED)
-    //             {
-    //               RCLCPP_WARN(
-    //                   _node.get_logger(),
-    //                   "COMMAND RESULT FAILED");
-    //             }
-    //           }
-
-    //           got_reply = true;
-    //         }
-    //       }
-    //       else
-    //       {
-    //         RCLCPP_DEBUG(
-    //             _node.get_logger(),
-    //             "No VehicleCommandAck message received");
-    //       }
-    //     }
-    //     else
-    //     {
-    //       RCLCPP_DEBUG(_node.get_logger(), "timeout");
-    //     }
-    //   }
-    // }
-
-    // wait_set.remove_subscription(vehicle_command_ack_sub);
-
-    // if (!got_reply)
-    // {
-    //   // We don't expect to run into an ack timeout
-    //   result = Result::Timeout;
-    //   RCLCPP_WARN(
-    //       _node.get_logger(), "Cmd %i: timeout, no ack received",
-    //       cmd.command);
-    // }
-
-    // return result;
   }
 
   void ModeExecutorBase::scheduleMode(
